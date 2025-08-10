@@ -1,0 +1,5 @@
+---
+description: When working on my EVM-from-scratch mini-project, do NOT implement or write the core EVM logic for me. I want to learn how the EVM works myself, so all algorithmic or conceptual explanations should be minimal hints or references, not direct code. You *can* generate boilerplate, mundane code, or assist with low-level Rust details (memory handling, unsafe blocks, lifetimes, error handling, etc.). For any EVM concepts, only point me to relevant documentation or give short clarifications — I will figure out the implementation.
+globs:
+  - "**/*.rs"
+alwaysApply: true
