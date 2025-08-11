@@ -1,58 +1,47 @@
-use primitive_types::U256;
+//! EVM (Ethereum Virtual Machine) implementation in Rust
+//! 
+//! This crate provides a complete implementation of the EVM with the following modules:
+//! - `types`: Core data types and configuration
+//! - `stack`: Stack operations
+//! - `memory`: Memory management
+//! - `gas`: Gas calculation and tracking
+//! - `opcodes`: Opcode definitions and execution framework
+//! - `state`: EVM execution state management
+//! - `vm`: Main VM orchestration
 
-pub struct EvmResult {
-    pub stack: Vec<U256>,
-    pub success: bool,
-}
+pub mod types;
+pub mod stack;
+pub mod memory;
+pub mod gas;
+pub mod opcodes;
+pub mod state;
+pub mod vm;
 
-pub fn evm(_code: impl AsRef<[u8]>) -> EvmResult {
-    let mut stack: Vec<U256> = Vec::new();
-    let mut pc = 0;
+// Re-export main types for convenience
+pub use types::{EvmConfig, EvmResult, EvmError, Address, Word, Gas};
+pub use vm::{Evm, EvmBuilder};
+pub use state::EvmState;
 
-    let code = _code.as_ref();
-
-    while pc < code.len() {
-        let opcode = code[pc];
-        pc += 1;
-
-        match opcode {
-            0x00 => {
-                // STOP
-            }
-            0x5f => {
-                // PUSH0
-                stack.push(U256::from(0));
-            }
-            0x60..=0x7f => {
-                // PUSH1..PUSH32
-                let size = (opcode - 0x60) + 1;
-                let size = size as usize; // Cast to usize
-
-                
-                // Read 'size' bytes from the code
-                let mut value = U256::from(0);
-                for i in 0..size {
-                    if pc + i < code.len() {
-                        value = value << 8 | U256::from(code[pc + i]);
-                    }
-                }
-                
-                stack.push(value);
-                pc += size; // Skip over the bytes we just read
-            }
-            _ => {
-                return EvmResult {
-                    stack: stack,
-                    success: false,
-                };
-            }
-        }
-    }
-
-    // TODO: Implement me
-
-    return EvmResult {
-        stack: stack.into_iter().rev().collect(),
-        success: true,
-    };
+/// Execute EVM bytecode with default configuration
+/// 
+/// This is a convenience function that creates a default EVM instance
+/// and executes the provided bytecode.
+/// 
+/// # Arguments
+/// * `code` - EVM bytecode to execute
+/// 
+/// # Returns
+/// * `EvmResult` - The result of execution including success status, gas used, and return data
+/// 
+/// # Example
+/// ```
+/// use evm::evm;
+/// 
+/// let code = vec![0x00]; // STOP instruction
+/// let result = evm(code);
+/// assert!(result.success);
+/// ```
+pub fn evm(code: impl AsRef<[u8]>) -> EvmResult {
+    let vm = Evm::default();
+    vm.execute(code.as_ref().to_vec())
 }
