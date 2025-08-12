@@ -15,6 +15,7 @@ pub enum Opcode {
     Smod = 0x07,
     Addmod = 0x08,
     Mulmod = 0x09,
+    Exp = 0x0a,
     Signextend = 0x0b,
     
     // Comparison and bitwise operations
@@ -29,6 +30,9 @@ pub enum Opcode {
     Xor = 0x18,
     Not = 0x19,
     Byte = 0x1a,
+    Shl = 0x1b,
+    Shr = 0x1c,
+    Sar = 0x1d,
     
     // SHA3
     Sha3 = 0x20,
@@ -179,6 +183,7 @@ impl Opcode {
             0x07 => Some(Opcode::Smod),
             0x08 => Some(Opcode::Addmod),
             0x09 => Some(Opcode::Mulmod),
+            0x0a => Some(Opcode::Exp),
             0x0b => Some(Opcode::Signextend),
             0x10 => Some(Opcode::Lt),
             0x11 => Some(Opcode::Gt),
@@ -191,6 +196,9 @@ impl Opcode {
             0x18 => Some(Opcode::Xor),
             0x19 => Some(Opcode::Not),
             0x1a => Some(Opcode::Byte),
+            0x1b => Some(Opcode::Shl),
+            0x1c => Some(Opcode::Shr),
+            0x1d => Some(Opcode::Sar),
             0x20 => Some(Opcode::Sha3),
             0x30 => Some(Opcode::Address),
             0x31 => Some(Opcode::Balance),
@@ -337,9 +345,9 @@ impl Opcode {
         match self {
             // Stop and arithmetic operations
             Opcode::Stop => GAS_BASE,
-            Opcode::Add | Opcode::Sub | Opcode::Not | Opcode::Lt | Opcode::Gt | Opcode::Slt | Opcode::Sgt | Opcode::Eq | Opcode::Iszero | Opcode::And | Opcode::Or | Opcode::Xor | Opcode::Byte => GAS_VERY_LOW,
+            Opcode::Add | Opcode::Sub | Opcode::Not | Opcode::Lt | Opcode::Gt | Opcode::Slt | Opcode::Sgt | Opcode::Eq | Opcode::Iszero | Opcode::And | Opcode::Or | Opcode::Xor | Opcode::Byte | Opcode::Shl | Opcode::Shr | Opcode::Sar => GAS_VERY_LOW,
             Opcode::Mul | Opcode::Div | Opcode::Sdiv | Opcode::Mod | Opcode::Smod | Opcode::Signextend => GAS_LOW,
-            Opcode::Addmod | Opcode::Mulmod => GAS_MID,
+            Opcode::Addmod | Opcode::Mulmod | Opcode::Exp => GAS_MID,
             
             // SHA3
             Opcode::Sha3 => GAS_MID,
