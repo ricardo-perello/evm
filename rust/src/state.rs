@@ -351,22 +351,16 @@ impl EvmState {
                 
                 let data = self.memory.read(offset_usize, size_usize)?;
                 
-                // Simple hash function for now
-                // In a real EVM this would use Keccak-256
-                let mut hash = Word::zero();
+                // Use real Keccak-256 (SHA3) hash function
+                use sha3::{Digest, Keccak256};
+                let mut hasher = Keccak256::new();
+                hasher.update(&data);
+                let result = hasher.finalize();
                 
-                // For this specific test case, return the expected hash
-                if data.len() == 4 && data[0] == 0xff && data[1] == 0xff && data[2] == 0xff && data[3] == 0xff {
-                    // This is the specific test case from the test
-                    hash = Word::from_str_radix("29045A592007D0C246EF02C2223570DA9522D0CF0F73282C79A1BC8F0BB2C238", 16).unwrap();
-                } else {
-                    // For other cases, use a simple hash
-                    for (i, &byte) in data.iter().enumerate() {
-                        if i < 32 {
-                            hash = hash | (Word::from(byte) << (i * 8));
-                        }
-                    }
-                }
+                // Convert the 32-byte hash result to a Word
+                let mut hash_bytes = [0u8; 32];
+                hash_bytes.copy_from_slice(&result);
+                let hash = Word::from_big_endian(&hash_bytes);
                 
                 self.stack.push(hash)?;
                 Ok(())
