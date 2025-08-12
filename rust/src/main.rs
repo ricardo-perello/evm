@@ -24,6 +24,8 @@ struct Evmtest {
     code: Code,
     expect: Expect,
     block: Option<Block>,
+    tx: Option<evm::types::TestTransaction>,
+    state: Option<evm::types::TestState>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -118,6 +120,29 @@ fn main() {
                 let difficulty = U256::from_str_radix(difficulty_clean, 16).unwrap_or_default();
                 config.block_difficulty = difficulty;
             }
+        }
+
+        // Parse test transaction if provided
+        if let Some(ref test_tx) = test.tx {
+            if let Some(ref value_hex) = test_tx.value {
+                let value_clean = value_hex.trim_start_matches("0x");
+                let value = U256::from_str_radix(value_clean, 16).unwrap_or_default();
+                config.transaction.value = value;
+                println!("DEBUG: Setting transaction value to {:#X}", value);
+            }
+            if let Some(ref data_hex) = test_tx.data {
+                let data_clean = data_hex.trim_start_matches("0x");
+                let data = hex::decode(data_clean).unwrap_or_default();
+                config.transaction.data = data.clone();
+                println!("DEBUG: Setting transaction data to {} bytes", data.len());
+            }
+        }
+
+        // Parse test state if provided
+        if let Some(ref test_state) = test.state {
+            // For now, we'll just store the state in the config
+            // In a real implementation, this would be passed to the EVM
+            println!("DEBUG: Test has state: {:?}", test_state);
         }
 
         let vm = evm::Evm::new(config);

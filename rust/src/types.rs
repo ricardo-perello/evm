@@ -12,6 +12,7 @@ pub struct Transaction {
     pub from: Address,    // Sender address
     pub value: U256,      // Transaction value
     pub gas_price: U256,  // Gas price
+    pub data: Vec<u8>,    // Transaction calldata
 }
 
 /// EVM configuration
@@ -44,6 +45,7 @@ impl Default for EvmConfig {
                 from: [0x1E, 0x79, 0xB0, 0x45, 0xDC, 0x29, 0xEA, 0xE9, 0xFD, 0xC6, 0x96, 0x73, 0xC9, 0xDC, 0xD7, 0xC5, 0x3E, 0x5E, 0x15, 0x9D],
                 value: U256::zero(),
                 gas_price: U256::from(0x99),
+                data: Vec::new(),
             },
         }
     }
@@ -77,6 +79,36 @@ pub struct Block {
     pub number: Option<String>,
     pub timestamp: Option<String>,
     pub difficulty: Option<String>,
+}
+
+/// Account state for test configuration
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct AccountState {
+    pub balance: Option<String>,
+    pub code: Option<Code>,
+}
+
+/// Code for test configuration
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct Code {
+    pub asm: Option<String>,
+    pub bin: String,
+}
+
+/// Test transaction configuration
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TestTransaction {
+    pub value: Option<String>,
+    pub data: Option<String>,
+    pub to: Option<String>,
+    pub from: Option<String>,
+}
+
+/// Test state configuration
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TestState {
+    #[serde(flatten)]
+    pub accounts: std::collections::HashMap<String, AccountState>,
 }
 
 /// EVM execution error
