@@ -662,6 +662,35 @@ impl EvmState {
                 Ok(())
             }
             
+            crate::opcodes::Opcode::Returndatasize => {
+                // Push the size of return data in bytes
+                self.stack.push(Word::from(self.return_data.len()))?;
+                Ok(())
+            }
+            
+            crate::opcodes::Opcode::Returndatacopy => {
+                // Pop destOffset, offset, size from stack
+                let dest_offset = self.stack.pop()?;
+                let offset = self.stack.pop()?;
+                let size = self.stack.pop()?;
+                
+                let dest_offset_usize = dest_offset.as_usize();
+                let offset_usize = offset.as_usize();
+                let size_usize = size.as_usize();
+                
+                // Copy return data to memory
+                let mut data = vec![0u8; size_usize];
+                for i in 0..size_usize {
+                    if offset_usize + i < self.return_data.len() {
+                        data[i] = self.return_data[offset_usize + i];
+                    }
+                    // If offset + i is out of bounds, data[i] remains 0 (already initialized)
+                }
+                
+                self.memory.write(dest_offset_usize, &data)?;
+                Ok(())
+            }
+            
             crate::opcodes::Opcode::Calldatacopy => {
                 // Pop destOffset, offset, size from stack
                 let dest_offset = self.stack.pop()?;
@@ -1320,6 +1349,281 @@ impl EvmState {
                 
                 // Set reverted state
                 self.reverted = true;
+                Ok(())
+            }
+            
+            crate::opcodes::Opcode::Call => {
+                // CALL opcode: gas, address, value, argsOffset, argsSize, retOffset, retSize
+                let gas = self.stack.pop()?;
+                let address_bytes = self.stack.pop()?;
+                let value = self.stack.pop()?;
+                let args_offset = self.stack.pop()?;
+                let args_size = self.stack.pop()?;
+                let ret_offset = self.stack.pop()?;
+                let ret_size = self.stack.pop()?;
+                
+                // Convert address from Word to Address (20 bytes)
+                let mut address = [0u8; 20];
+                for i in 0..20 {
+                    if i < 32 {
+                        address[19 - i] = address_bytes.byte(31 - i);
+                    }
+                }
+                
+                // Get the contract code from test state
+                let contract_code = if let Some(test_state) = &self.config.test_state {
+                    if let Some(account) = test_state.accounts.get(&format!("0x{:x}", address_bytes)) {
+                        if let Some(code) = &account.code {
+                            // Convert hex string to bytes
+                            let mut code_bytes = Vec::new();
+                            let hex = &code.bin;
+                            for i in (0..hex.len()).step_by(2) {
+                                if i + 1 < hex.len() {
+                                    if let Ok(byte) = u8::from_str_radix(&hex[i..i+2], 16) {
+                                        code_bytes.push(byte);
+                                    }
+                                }
+                            }
+                            code_bytes
+                        } else {
+                            Vec::new()
+                        }
+                    } else {
+                        Vec::new()
+                    }
+                } else {
+                    Vec::new()
+                };
+                
+                // If no code, return failure
+                if contract_code.is_empty() {
+                    self.stack.push(Word::from(0))?; // Failure
+                    return Ok(());
+                }
+                
+                // Create a new EVM instance to execute the contract
+                let mut call_config = self.config.clone();
+                call_config.transaction.to = address;
+                call_config.transaction.from = self.address;
+                call_config.transaction.value = value;
+                
+                // Extract call data from memory
+                let args_offset_usize = args_offset.as_usize();
+                let args_size_usize = args_size.as_usize();
+                let call_data = self.memory.read(args_offset_usize, args_size_usize)?;
+                call_config.transaction.data = call_data;
+                
+                // Execute the contract
+                let evm = crate::vm::Evm::new(call_config);
+                let result = evm.execute(contract_code);
+                
+                // Push success/failure (1 for success, 0 for failure)
+                if result.success {
+                    self.stack.push(Word::from(1))?;
+                } else {
+                    self.stack.push(Word::from(0))?;
+                }
+                
+                // Always copy return data to memory if specified (even on revert)
+                let ret_offset_usize = ret_offset.as_usize();
+                let ret_size_usize = ret_size.as_usize();
+                let return_data = result.return_data;
+                
+                // Update the current state's return_data field for RETURNDATASIZE
+                self.return_data = return_data.clone();
+                
+                for i in 0..ret_size_usize.min(return_data.len()) {
+                    self.memory.write(ret_offset_usize + i, &[return_data[i]])?;
+                }
+                
+                Ok(())
+            }
+            
+            crate::opcodes::Opcode::Delegatecall => {
+                // DELEGATECALL opcode: gas, address, argsOffset, argsSize, retOffset, retSize
+                let gas = self.stack.pop()?;
+                let address_bytes = self.stack.pop()?;
+                let args_offset = self.stack.pop()?;
+                let args_size = self.stack.pop()?;
+                let ret_offset = self.stack.pop()?;
+                let ret_size = self.stack.pop()?;
+                
+                // Convert address from Word to Address (20 bytes)
+                let mut address = [0u8; 20];
+                for i in 0..20 {
+                    if i < 32 {
+                        address[19 - i] = address_bytes.byte(31 - i);
+                    }
+                }
+                
+                // Get the contract code from test state
+                let contract_code = if let Some(test_state) = &self.config.test_state {
+                    if let Some(account) = test_state.accounts.get(&format!("0x{:x}", address_bytes)) {
+                        if let Some(code) = &account.code {
+                            // Convert hex string to bytes
+                            let mut code_bytes = Vec::new();
+                            let hex = &code.bin;
+                            for i in (0..hex.len()).step_by(2) {
+                                if i + 1 < hex.len() {
+                                    if let Ok(byte) = u8::from_str_radix(&hex[i..i+2], 16) {
+                                        code_bytes.push(byte);
+                                    }
+                                }
+                            }
+                            code_bytes
+                        } else {
+                            Vec::new()
+                        }
+                    } else {
+                        Vec::new()
+                    }
+                } else {
+                    Vec::new()
+                };
+                
+                // If no code, return failure
+                if contract_code.is_empty() {
+                    self.stack.push(Word::from(0))?; // Failure
+                    return Ok(());
+                }
+                
+                // Extract call data from memory
+                let args_offset_usize = args_offset.as_usize();
+                let args_size_usize = args_size.as_usize();
+                let call_data = self.memory.read(args_offset_usize, args_size_usize)?;
+                
+                // Create a new EVM instance to execute the contract
+                // DELEGATECALL preserves the transaction context (caller, origin, address)
+                let mut call_config = self.config.clone();
+                call_config.transaction.to = address;
+                // Keep the original caller, origin, and address
+                call_config.transaction.from = self.caller;
+                call_config.transaction.data = call_data.clone();
+                
+                // For DELEGATECALL, we need to share the storage context
+                // Create a new EvmState but with the same storage
+                let mut delegate_state = EvmState::new(contract_code.clone(), call_config.clone());
+                delegate_state.storage = self.storage.clone(); // Share storage context
+                delegate_state.address = self.address; // Keep the same address
+                
+                // Execute the contract in the delegate state
+                while delegate_state.status() == crate::state::ExecutionStatus::Running {
+                    if let Err(_) = delegate_state.step() {
+                        // On error, execution stops and returns failure
+                        delegate_state.reverted = true;
+                        break;
+                    }
+                }
+                
+                // Get the result and update our storage
+                let result = delegate_state.result();
+                self.storage = delegate_state.storage; // Update our storage with any changes
+                
+                // Push success/failure (1 for success, 0 for failure)
+                if result.success {
+                    self.stack.push(Word::from(1))?;
+                } else {
+                    self.stack.push(Word::from(0))?;
+                }
+                
+                // Always copy return data to memory if specified (even on revert)
+                let ret_offset_usize = ret_offset.as_usize();
+                let ret_size_usize = ret_size.as_usize();
+                let return_data = result.return_data;
+                
+                // Update the current state's return_data field for RETURNDATASIZE
+                self.return_data = return_data.clone();
+                
+                for i in 0..ret_size_usize.min(return_data.len()) {
+                    self.memory.write(ret_offset_usize + i, &[return_data[i]])?;
+                }
+                
+                Ok(())
+            }
+            
+            crate::opcodes::Opcode::Staticcall => {
+                // STATICCALL opcode: gas, address, argsOffset, argsSize, retOffset, retSize
+                let gas = self.stack.pop()?;
+                let address_bytes = self.stack.pop()?;
+                let args_offset = self.stack.pop()?;
+                let args_size = self.stack.pop()?;
+                let ret_offset = self.stack.pop()?;
+                let ret_size = self.stack.pop()?;
+                
+                // Convert address from Word to Address (20 bytes)
+                let mut address = [0u8; 20];
+                for i in 0..20 {
+                    if i < 32 {
+                        address[19 - i] = address_bytes.byte(31 - i);
+                    }
+                }
+                
+                // Get the contract code from test state
+                let contract_code = if let Some(test_state) = &self.config.test_state {
+                    if let Some(account) = test_state.accounts.get(&format!("0x{:x}", address_bytes)) {
+                        if let Some(code) = &account.code {
+                            // Convert hex string to bytes
+                            let mut code_bytes = Vec::new();
+                            let hex = &code.bin;
+                            for i in (0..hex.len()).step_by(2) {
+                                if i + 1 < hex.len() {
+                                    if let Ok(byte) = u8::from_str_radix(&hex[i..i+2], 16) {
+                                        code_bytes.push(byte);
+                                    }
+                                }
+                            }
+                            code_bytes
+                        } else {
+                            Vec::new()
+                        }
+                    } else {
+                        Vec::new()
+                    }
+                } else {
+                    Vec::new()
+                };
+                
+                // If no code, return failure
+                if contract_code.is_empty() {
+                    self.stack.push(Word::from(0))?; // Failure
+                    return Ok(());
+                }
+                
+                // Extract call data from memory
+                let args_offset_usize = args_offset.as_usize();
+                let args_size_usize = args_size.as_usize();
+                let call_data = self.memory.read(args_offset_usize, args_size_usize)?;
+                
+                // Create a new EVM instance to execute the contract
+                // STATICCALL disables state modifications
+                let mut call_config = self.config.clone();
+                call_config.transaction.to = address;
+                call_config.transaction.from = self.address;
+                call_config.transaction.data = call_data;
+                
+                // Execute the contract
+                let evm = crate::vm::Evm::new(call_config);
+                let result = evm.execute(contract_code);
+                
+                // Push success/failure (1 for success, 0 for failure)
+                if result.success {
+                    self.stack.push(Word::from(1))?;
+                } else {
+                    self.stack.push(Word::from(0))?;
+                }
+                
+                // Always copy return data to memory if specified (even on revert)
+                let ret_offset_usize = ret_offset.as_usize();
+                let ret_size_usize = ret_size.as_usize();
+                let return_data = result.return_data;
+                
+                // Update the current state's return_data field for RETURNDATASIZE
+                self.return_data = return_data.clone();
+                
+                for i in 0..ret_size_usize.min(return_data.len()) {
+                    self.memory.write(ret_offset_usize + i, &[return_data[i]])?;
+                }
+                
                 Ok(())
             }
             
