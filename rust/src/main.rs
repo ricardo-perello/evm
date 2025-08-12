@@ -105,6 +105,13 @@ fn main() {
                 config.block_timestamp = timestamp;
             }
             
+            // Configure chain id
+            if let Some(ref chainid_hex) = block.chainid {
+                let chainid_clean = chainid_hex.trim_start_matches("0x");
+                let chainid = U256::from_str_radix(chainid_clean, 16).unwrap_or_default();
+                config.chain_id = chainid;
+            }
+            
             // Configure difficulty
             if let Some(ref difficulty_hex) = block.difficulty {
                 let difficulty_clean = difficulty_hex.trim_start_matches("0x");

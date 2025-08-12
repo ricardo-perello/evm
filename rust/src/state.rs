@@ -677,6 +677,11 @@ impl EvmState {
                 Ok(())
             }
             
+            crate::opcodes::Opcode::Chainid => {
+                self.stack.push(self.config.chain_id)?;
+                Ok(())
+            }
+            
             crate::opcodes::Opcode::Basefee => {
                 self.stack.push(self.block_base_fee)?;
                 Ok(())

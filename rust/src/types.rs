@@ -23,6 +23,7 @@ pub struct EvmConfig {
     pub block_difficulty: U256,
     pub block_gas_limit: U256,
     pub block_base_fee: U256,
+    pub chain_id: U256,
     pub coinbase: Address,
     pub transaction: Transaction,
 }
@@ -36,6 +37,7 @@ impl Default for EvmConfig {
             block_difficulty: U256::zero(),
             block_gas_limit: U256::from(30_000_000),
             block_base_fee: U256::from(1),
+            chain_id: U256::from(1),
             coinbase: [0u8; 20],
             transaction: Transaction {
                 to: [0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A, 0xAA],
@@ -71,6 +73,7 @@ pub struct Block {
     pub coinbase: Option<String>,
     pub basefee: Option<String>,
     pub gaslimit: Option<String>,
+    pub chainid: Option<String>,
     pub number: Option<String>,
     pub timestamp: Option<String>,
     pub difficulty: Option<String>,
