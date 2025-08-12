@@ -35,6 +35,9 @@ pub struct EvmState {
     pub reverted: bool,
     pub last_jumpi_jumped: bool,
     
+    // Storage for the current contract
+    pub storage: std::collections::HashMap<Word, Word>,
+    
     // Reference to config for dynamic values
     pub config: EvmConfig,
 }
@@ -70,6 +73,9 @@ impl EvmState {
             halted: false,
             reverted: false,
             last_jumpi_jumped: false,
+            
+            // Initialize storage
+            storage: std::collections::HashMap::new(),
             
             // Store config reference
             config,
@@ -1105,6 +1111,215 @@ impl EvmState {
             
             crate::opcodes::Opcode::Jumpdest => {
                 // JUMPDEST is a no-op, just continue execution
+                Ok(())
+            }
+            
+            // Storage operations
+            crate::opcodes::Opcode::Sstore => {
+                let key = self.stack.pop()?;
+                let value = self.stack.pop()?;
+                
+                // Calculate gas cost based on storage operation type
+                let current_value = self.storage.get(&key).copied().unwrap_or(Word::zero());
+                let gas_cost = if current_value.is_zero() && !value.is_zero() {
+                    // Setting a new non-zero value
+                    crate::gas::GAS_SSTORE_SET
+                } else if !current_value.is_zero() && value.is_zero() {
+                    // Clearing a non-zero value
+                    crate::gas::GAS_SSTORE_CLEAR
+                } else {
+                    // Resetting an existing value
+                    crate::gas::GAS_SSTORE_RESET
+                };
+                
+                // Consume the calculated gas (SSTORE gas is handled here, not in step())
+                self.gas_tracker.consume(gas_cost)?;
+                
+                // Store the value at the given key
+                self.storage.insert(key, value);
+                Ok(())
+            }
+            
+            crate::opcodes::Opcode::Sload => {
+                let key = self.stack.pop()?;
+                
+                // SLOAD gas is already consumed in step(), so no need to consume here
+                
+                // Load the value from storage, return 0 if not found
+                let value = self.storage.get(&key).copied().unwrap_or(Word::zero());
+                self.stack.push(value)?;
+                Ok(())
+            }
+            
+            // Logging operations
+            crate::opcodes::Opcode::Log0 => {
+                // LOG0 gas is already consumed in step(), so no need to consume here
+                
+                // LOG0 consumes 2 values from stack: offset and size
+                let offset = self.stack.pop()?;
+                let size = self.stack.pop()?;
+                
+                // Read data from memory at the specified offset and size
+                let offset_usize = offset.as_usize();
+                let size_usize = size.as_usize();
+                let data = self.memory.read(offset_usize, size_usize)?;
+                
+                // Create log entry
+                let log = crate::types::Log {
+                    address: self.address,
+                    topics: vec![], // LOG0 has no topics
+                    data,
+                };
+                
+                // Add to logs
+                self.logs.push(log);
+                Ok(())
+            }
+            
+            crate::opcodes::Opcode::Log1 => {
+                // LOG1 gas is already consumed in step(), so no need to consume here
+                
+                // LOG1 consumes 3 values from stack: offset, size, and topic1
+                let offset = self.stack.pop()?;
+                let size = self.stack.pop()?;
+                let topic1 = self.stack.pop()?;
+                
+                // Read data from memory at the specified offset and size
+                let offset_usize = offset.as_usize();
+                let size_usize = size.as_usize();
+                let data = self.memory.read(offset_usize, size_usize)?;
+                
+                // Create log entry
+                let log = crate::types::Log {
+                    address: self.address,
+                    topics: vec![topic1], // LOG1 has 1 topic
+                    data,
+                };
+                
+                // Add to logs
+                self.logs.push(log);
+                Ok(())
+            }
+            
+            crate::opcodes::Opcode::Log2 => {
+                // LOG2 gas is already consumed in step(), so no need to consume here
+                
+                // LOG2 consumes 4 values from stack: offset, size, topic1, and topic2
+                let offset = self.stack.pop()?;
+                let size = self.stack.pop()?;
+                let topic1 = self.stack.pop()?;
+                let topic2 = self.stack.pop()?;
+                
+                // Read data from memory at the specified offset and size
+                let offset_usize = offset.as_usize();
+                let size_usize = size.as_usize();
+                let data = self.memory.read(offset_usize, size_usize)?;
+                
+                // Create log entry
+                let log = crate::types::Log {
+                    address: self.address,
+                    topics: vec![topic1, topic2], // LOG2 has 2 topics
+                    data,
+                };
+                
+                // Add to logs
+                self.logs.push(log);
+                Ok(())
+            }
+            
+            crate::opcodes::Opcode::Log3 => {
+                // LOG3 gas is already consumed in step(), so no need to consume here
+                
+                // LOG3 consumes 5 values from stack: offset, size, topic1, topic2, and topic3
+                let offset = self.stack.pop()?;
+                let size = self.stack.pop()?;
+                let topic1 = self.stack.pop()?;
+                let topic2 = self.stack.pop()?;
+                let topic3 = self.stack.pop()?;
+                
+                // Read data from memory at the specified offset and size
+                let offset_usize = offset.as_usize();
+                let size_usize = size.as_usize();
+                let data = self.memory.read(offset_usize, size_usize)?;
+                
+                // Create log entry
+                let log = crate::types::Log {
+                    address: self.address,
+                    topics: vec![topic1, topic2, topic3], // LOG3 has 3 topics
+                    data,
+                };
+                
+                // Add to logs
+                self.logs.push(log);
+                Ok(())
+            }
+            
+            crate::opcodes::Opcode::Log4 => {
+                // LOG4 gas is already consumed in step(), so no need to consume here
+                
+                // LOG4 consumes 6 values from stack: offset, size, topic1, topic2, topic3, and topic4
+                let offset = self.stack.pop()?;
+                let size = self.stack.pop()?;
+                let topic1 = self.stack.pop()?;
+                let topic2 = self.stack.pop()?;
+                let topic3 = self.stack.pop()?;
+                let topic4 = self.stack.pop()?;
+                
+                // Read data from memory at the specified offset and size
+                let offset_usize = offset.as_usize();
+                let size_usize = size.as_usize();
+                let data = self.memory.read(offset_usize, size_usize)?;
+                
+                // Create log entry
+                let log = crate::types::Log {
+                    address: self.address,
+                    topics: vec![topic1, topic2, topic3, topic4], // LOG4 has 4 topics
+                    data,
+                };
+                
+                // Add to logs
+                self.logs.push(log);
+                Ok(())
+            }
+            
+            // System operations
+            crate::opcodes::Opcode::Return => {
+                // RETURN gas is already consumed in step(), so no need to consume here
+                
+                // RETURN consumes 2 values from stack: offset and size
+                let offset = self.stack.pop()?;
+                let size = self.stack.pop()?;
+                
+                // Read data from memory at the specified offset and size
+                let offset_usize = offset.as_usize();
+                let size_usize = size.as_usize();
+                let data = self.memory.read(offset_usize, size_usize)?;
+                
+                // Set return data
+                self.return_data = data;
+                
+                // Halt execution
+                self.halted = true;
+                Ok(())
+            }
+            
+            crate::opcodes::Opcode::Revert => {
+                // REVERT gas is already consumed in step(), so no need to consume here
+                
+                // REVERT consumes 2 values from stack: offset and size
+                let offset = self.stack.pop()?;
+                let size = self.stack.pop()?;
+                
+                // Read data from memory at the specified offset and size
+                let offset_usize = offset.as_usize();
+                let size_usize = size.as_usize();
+                let data = self.memory.read(offset_usize, size_usize)?;
+                
+                // Set return data
+                self.return_data = data;
+                
+                // Set reverted state
+                self.reverted = true;
                 Ok(())
             }
             
