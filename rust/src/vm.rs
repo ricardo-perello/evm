@@ -19,6 +19,7 @@ impl Evm {
         while state.status() == crate::state::ExecutionStatus::Running {
             if let Err(_) = state.step() {
                 // On error, execution stops and returns failure
+                state.reverted = true;
                 break;
             }
         }
