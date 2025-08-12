@@ -5,6 +5,15 @@ pub type Address = [u8; 20];
 pub type Word = U256;
 pub type Gas = u64;
 
+/// Transaction data
+#[derive(Debug, Clone)]
+pub struct Transaction {
+    pub to: Address,      // Contract address (or zero for contract creation)
+    pub from: Address,    // Sender address
+    pub value: U256,      // Transaction value
+    pub gas_price: U256,  // Gas price
+}
+
 /// EVM configuration
 #[derive(Debug, Clone)]
 pub struct EvmConfig {
@@ -14,6 +23,7 @@ pub struct EvmConfig {
     pub block_difficulty: U256,
     pub block_gas_limit: Gas,
     pub block_base_fee: U256,
+    pub transaction: Transaction,
 }
 
 impl Default for EvmConfig {
@@ -24,7 +34,13 @@ impl Default for EvmConfig {
             block_timestamp: 0,
             block_difficulty: U256::zero(),
             block_gas_limit: 30_000_000,
-            block_base_fee: U256::zero(),
+            block_base_fee: U256::from(1),
+            transaction: Transaction {
+                to: [0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A, 0xAA],
+                from: [0x1E, 0x79, 0xB0, 0x45, 0xDC, 0x29, 0xEA, 0xE9, 0xFD, 0xC6, 0x96, 0x73, 0xC9, 0xDC, 0xD7, 0xC5, 0x3E, 0x5E, 0x15, 0x9D],
+                value: U256::zero(),
+                gas_price: U256::from(0x99),
+            },
         }
     }
 }
