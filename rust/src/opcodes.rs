@@ -53,6 +53,7 @@ pub enum Opcode {
     Extcodecopy = 0x3c,
     Returndatasize = 0x3d,
     Returndatacopy = 0x3e,
+    Extcodehash = 0x3f,
     
     // Block information
     Blockhash = 0x40,
@@ -215,6 +216,7 @@ impl Opcode {
             0x3c => Some(Opcode::Extcodecopy),
             0x3d => Some(Opcode::Returndatasize),
             0x3e => Some(Opcode::Returndatacopy),
+            0x3f => Some(Opcode::Extcodehash),
             0x40 => Some(Opcode::Blockhash),
             0x41 => Some(Opcode::Coinbase),
             0x42 => Some(Opcode::Timestamp),
@@ -354,7 +356,7 @@ impl Opcode {
             
             // Environmental information
             Opcode::Address | Opcode::Origin | Opcode::Caller | Opcode::Callvalue | Opcode::Codesize | Opcode::Gasprice | Opcode::Chainid | Opcode::Selfbalance | Opcode::Basefee => GAS_BASE,
-            Opcode::Balance | Opcode::Extcodesize => GAS_EXTCODE,
+            Opcode::Balance | Opcode::Extcodesize | Opcode::Extcodehash => GAS_EXTCODE,
             Opcode::Calldataload | Opcode::Calldatasize | Opcode::Returndatasize => GAS_VERY_LOW,
             Opcode::Calldatacopy | Opcode::Codecopy | Opcode::Extcodecopy | Opcode::Returndatacopy => GAS_VERY_LOW,
             

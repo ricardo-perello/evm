@@ -124,6 +124,14 @@ fn main() {
 
         // Parse test transaction if provided
         if let Some(ref test_tx) = test.tx {
+            if let Some(ref to_hex) = test_tx.to {
+                let to_clean = to_hex.trim_start_matches("0x");
+                let to_bytes = hex::decode(to_clean).unwrap_or_default();
+                if to_bytes.len() == 20 {
+                    config.transaction.to = to_bytes.try_into().unwrap_or(config.transaction.to);
+                    println!("DEBUG: Setting transaction to address to {}", to_hex);
+                }
+            }
             if let Some(ref value_hex) = test_tx.value {
                 let value_clean = value_hex.trim_start_matches("0x");
                 let value = U256::from_str_radix(value_clean, 16).unwrap_or_default();
@@ -140,8 +148,8 @@ fn main() {
 
         // Parse test state if provided
         if let Some(ref test_state) = test.state {
-            // For now, we'll just store the state in the config
-            // In a real implementation, this would be passed to the EVM
+            // Store the state in the config for the EVM to use
+            config.test_state = Some(test_state.clone());
             println!("DEBUG: Test has state: {:?}", test_state);
         }
 
