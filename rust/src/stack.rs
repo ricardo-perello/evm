@@ -45,6 +45,11 @@ impl Stack {
     pub fn data(&self) -> &[Word] {
         &self.data
     }
+
+    /// Get a mutable reference to the internal data (for SWAP operations)
+    pub fn data_mut(&mut self) -> &mut [Word] {
+        &mut self.data
+    }
 }
 
 impl Default for Stack {
