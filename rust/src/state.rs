@@ -1,4 +1,5 @@
 use crate::types::{EvmError, EvmConfig, Word, Address};
+use primitive_types::U256;
 use crate::stack::Stack;
 use crate::memory::Memory;
 use crate::gas::GasTracker;
@@ -24,7 +25,7 @@ pub struct EvmState {
     pub block_number: u64,
     pub block_timestamp: u64,
     pub block_difficulty: Word,
-    pub block_gas_limit: u64,
+    pub block_gas_limit: U256,
     pub block_base_fee: Word,
     pub coinbase: Address,
     
@@ -32,6 +33,9 @@ pub struct EvmState {
     pub halted: bool,
     pub reverted: bool,
     pub last_jumpi_jumped: bool,
+    
+    // Reference to config for dynamic values
+    pub config: EvmConfig,
 }
 
 impl EvmState {
@@ -58,12 +62,15 @@ impl EvmState {
             block_difficulty: config.block_difficulty,
             block_gas_limit: config.block_gas_limit,
             block_base_fee: config.block_base_fee,
-            coinbase: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x77],
+            coinbase: config.coinbase,
             
             // Execution flags
             halted: false,
             reverted: false,
             last_jumpi_jumped: false,
+            
+            // Store config reference
+            config,
         }
     }
 
@@ -666,7 +673,7 @@ impl EvmState {
             }
             
             crate::opcodes::Opcode::Gaslimit => {
-                self.stack.push(Word::from(self.block_gas_limit))?;
+                self.stack.push(self.config.block_gas_limit)?;
                 Ok(())
             }
             

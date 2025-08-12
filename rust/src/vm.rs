@@ -1,5 +1,7 @@
 use crate::types::{EvmError, EvmConfig, EvmResult, Address, Word};
 use crate::state::EvmState;
+use crate::Gas;
+use primitive_types::U256;
 
 /// Main EVM virtual machine
 pub struct Evm {
@@ -56,7 +58,7 @@ impl EvmBuilder {
         }
     }
 
-    pub fn gas_limit(mut self, gas_limit: u64) -> Self {
+    pub fn gas_limit(mut self, gas_limit: Gas) -> Self {
         self.config.gas_limit = gas_limit;
         self
     }
@@ -76,8 +78,8 @@ impl EvmBuilder {
         self
     }
 
-    pub fn block_gas_limit(mut self, block_gas_limit: u64) -> Self {
-        self.config.block_gas_limit = block_gas_limit;
+    pub fn block_gas_limit(mut self, block_gas_limit: Gas) -> Self {
+        self.config.block_gas_limit = U256::from(block_gas_limit);
         self
     }
 

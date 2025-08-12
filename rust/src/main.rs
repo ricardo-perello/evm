@@ -13,7 +13,7 @@
  * to Rust, implement EVM in another programming language first.
  */
 
-use evm::evm;
+use evm::types::Block;
 use primitive_types::U256;
 use serde::Deserialize;
 
@@ -23,6 +23,7 @@ struct Evmtest {
     hint: String,
     code: Code,
     expect: Expect,
+    block: Option<Block>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,7 +52,69 @@ fn main() {
 
         let code: Vec<u8> = hex::decode(&test.code.bin).unwrap();
 
-        let result = evm(&code);
+        // Create EVM configuration from test block data
+        let mut config = evm::EvmConfig::default();
+        
+        if let Some(ref block) = test.block {
+            // Configure coinbase
+            if let Some(ref coinbase_hex) = block.coinbase {
+                let coinbase_clean = coinbase_hex.trim_start_matches("0x");
+                // Pad odd-length hex strings with leading zero
+                let padded_hex = if coinbase_clean.len() % 2 == 1 {
+                    format!("0{}", coinbase_clean)
+                } else {
+                    coinbase_clean.to_string()
+                };
+                let coinbase_bytes = hex::decode(&padded_hex).unwrap_or_default();
+                let mut coinbase = [0u8; 20];
+                
+                // Place the bytes at the end of the 20-byte array (right-aligned)
+                let start_pos = 20 - coinbase_bytes.len();
+                for (i, &byte) in coinbase_bytes.iter().enumerate() {
+                    coinbase[start_pos + i] = byte;
+                }
+                config.coinbase = coinbase;
+            }
+            
+            // Configure base fee
+            if let Some(ref base_fee_hex) = block.basefee {
+                let base_fee_clean = base_fee_hex.trim_start_matches("0x");
+                let base_fee = U256::from_str_radix(base_fee_clean, 16).unwrap_or_default();
+                config.block_base_fee = base_fee;
+            }
+            
+            // Configure gas limit
+            if let Some(ref gas_limit_hex) = block.gaslimit {
+                let gas_limit_clean = gas_limit_hex.trim_start_matches("0x");
+                let gas_limit = U256::from_str_radix(gas_limit_clean, 16).unwrap_or_default();
+                config.block_gas_limit = gas_limit;
+
+            }
+            
+            // Configure block number
+            if let Some(ref number_hex) = block.number {
+                let number_clean = number_hex.trim_start_matches("0x");
+                let number = u64::from_str_radix(number_clean, 16).unwrap_or_default();
+                config.block_number = number;
+            }
+            
+            // Configure timestamp
+            if let Some(ref timestamp_hex) = block.timestamp {
+                let timestamp_clean = timestamp_hex.trim_start_matches("0x");
+                let timestamp = u64::from_str_radix(timestamp_clean, 16).unwrap_or_default();
+                config.block_timestamp = timestamp;
+            }
+            
+            // Configure difficulty
+            if let Some(ref difficulty_hex) = block.difficulty {
+                let difficulty_clean = difficulty_hex.trim_start_matches("0x");
+                let difficulty = U256::from_str_radix(difficulty_clean, 16).unwrap_or_default();
+                config.block_difficulty = difficulty;
+            }
+        }
+
+        let vm = evm::Evm::new(config);
+        let result = vm.execute(code);
 
         let mut expected_stack: Vec<U256> = Vec::new();
         if let Some(ref stacks) = test.expect.stack {
