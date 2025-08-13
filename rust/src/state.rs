@@ -398,13 +398,40 @@ impl EvmState {
             crate::opcodes::Opcode::Balance => {
                 // Pop the address from the stack
                 let address = self.stack.pop()?;
-                // For now, hardcode the balance for the test
-                // In a real implementation, this would check the account state
-                if address == Word::from_str_radix("1e79b045dc29eae9fdc69673c9dcd7c53e5e159d", 16).unwrap() {
-                    self.stack.push(Word::from_str_radix("100", 16).unwrap())?;
+                println!("DEBUG: BALANCE - Checking balance for address 0x{:040x}", address);
+                
+                // Check if we have test state configuration
+                if let Some(ref test_state) = self.config.test_state {
+                    // Convert address to string format for lookup
+                    let address_str = format!("0x{:040x}", address);
+                    println!("DEBUG: BALANCE - Looking for address {} in test state", address_str);
+                    println!("DEBUG: BALANCE - Available accounts: {:?}", test_state.accounts.keys().collect::<Vec<_>>());
+                    
+                    // Check if this address has a balance in the test state
+                    if let Some(account_state) = test_state.accounts.get(&address_str) {
+                        if let Some(ref balance_hex) = account_state.balance {
+                            // Parse the balance from hex string
+                            let balance_clean = balance_hex.trim_start_matches("0x");
+                            let balance = U256::from_str_radix(balance_clean, 16).unwrap_or_default();
+                            println!("DEBUG: BALANCE - Found balance 0x{:x} for address {}", balance, address_str);
+                            self.stack.push(balance)?;
+                        } else {
+                            // No balance specified, return 0
+                            println!("DEBUG: BALANCE - No balance specified for address {}", address_str);
+                            self.stack.push(Word::zero())?;
+                        }
+                    } else {
+                        // Address not found in test state, return 0
+                        println!("DEBUG: BALANCE - Address {} not found in test state", address_str);
+                        self.stack.push(Word::zero())?;
+                    }
                 } else {
+                    // No test state, return 0
+                    println!("DEBUG: BALANCE - No test state available");
                     self.stack.push(Word::zero())?;
                 }
+                
+                println!("DEBUG: BALANCE - Stack after BALANCE: {:?}", self.stack.data());
                 Ok(())
             }
             
@@ -1373,6 +1400,69 @@ impl EvmState {
                 
                 // Set reverted state
                 self.reverted = true;
+                Ok(())
+            }
+            
+            crate::opcodes::Opcode::Create => {
+                // Check if we're in static context (STATICCALL)
+                if self.static_context {
+                    return Err(EvmError::Unknown("CREATE not allowed in static context".to_string()));
+                }
+                
+                // CREATE opcode: value, offset, size
+                let value = self.stack.pop()?;
+                let offset = self.stack.pop()?;
+                let size = self.stack.pop()?;
+                
+                // Read the contract code from memory
+                let offset_usize = offset.as_usize();
+                let size_usize = size.as_usize();
+                let contract_code = self.memory.read(offset_usize, size_usize)?;
+                
+                // Generate a deterministic address based on the caller address and some fixed data
+                // For simplicity, we'll use a hash-like function
+                let mut address_data = Vec::new();
+                address_data.extend_from_slice(&self.address);
+                address_data.extend_from_slice(&[0u8; 12]); // Pad to 32 bytes
+                
+                // Simple hash-like function for address generation
+                let mut address_hash = Word::zero();
+                for (i, &byte) in address_data.iter().enumerate() {
+                    let byte_word = Word::from(byte);
+                    let position = Word::from(i);
+                    address_hash = address_hash ^ (byte_word << (position % 256));
+                }
+                
+                // Convert to 20-byte address (take last 20 bytes)
+                let mut new_address = [0u8; 20];
+                for i in 0..20 {
+                    new_address[i] = address_hash.byte(31 - i);
+                }
+                
+                // Push the new contract address onto the stack
+                let mut padded_address = vec![0u8; 32];
+                for (i, &byte) in new_address.iter().enumerate() {
+                    padded_address[32 - 20 + i] = byte;
+                }
+                let address_word = Word::from_big_endian(&padded_address);
+                
+                // Add the new contract account to the test state
+                // Since we now have a default test state, this will always work
+                if let Some(ref mut test_state) = self.config.test_state {
+                    let address_str = format!("0x{:040x}", address_word);
+                    test_state.accounts.insert(address_str.clone(), crate::types::AccountState {
+                        balance: Some(format!("0x{:x}", value)),
+                        code: None,
+                    });
+                    println!("DEBUG: CREATE - Created account {} with balance 0x{:x}", address_str, value);
+                }
+                
+                // Push the new contract address onto the stack
+                self.stack.push(address_word)?;
+                
+                println!("DEBUG: CREATE - Pushed address 0x{:040x} onto stack", address_word);
+                println!("DEBUG: CREATE - Stack after CREATE: {:?}", self.stack.data());
+                
                 Ok(())
             }
             

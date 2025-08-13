@@ -15,6 +15,27 @@ pub struct Transaction {
     pub data: Vec<u8>,    // Transaction calldata
 }
 
+/// Account state for test configuration
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct AccountState {
+    pub balance: Option<String>,
+    pub code: Option<Code>,
+}
+
+/// Code for test configuration
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct Code {
+    pub asm: Option<String>,
+    pub bin: String,
+}
+
+/// Test state configuration
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TestState {
+    #[serde(flatten)]
+    pub accounts: std::collections::HashMap<String, AccountState>,
+}
+
 /// EVM configuration
 #[derive(Debug, Clone)]
 pub struct EvmConfig {
@@ -41,7 +62,9 @@ impl Default for EvmConfig {
             block_base_fee: U256::from(1),
             chain_id: U256::from(1),
             coinbase: [0u8; 20],
-            test_state: None,
+            test_state: Some(TestState {
+                accounts: std::collections::HashMap::new(),
+            }),
             transaction: Transaction {
                 to: [0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A, 0xAA],
                 from: [0x1E, 0x79, 0xB0, 0x45, 0xDC, 0x29, 0xEA, 0xE9, 0xFD, 0xC6, 0x96, 0x73, 0xC9, 0xDC, 0xD7, 0xC5, 0x3E, 0x5E, 0x15, 0x9D],
@@ -83,20 +106,6 @@ pub struct Block {
     pub difficulty: Option<String>,
 }
 
-/// Account state for test configuration
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct AccountState {
-    pub balance: Option<String>,
-    pub code: Option<Code>,
-}
-
-/// Code for test configuration
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct Code {
-    pub asm: Option<String>,
-    pub bin: String,
-}
-
 /// Test transaction configuration
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct TestTransaction {
@@ -104,13 +113,6 @@ pub struct TestTransaction {
     pub data: Option<String>,
     pub to: Option<String>,
     pub from: Option<String>,
-}
-
-/// Test state configuration
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct TestState {
-    #[serde(flatten)]
-    pub accounts: std::collections::HashMap<String, AccountState>,
 }
 
 /// EVM execution error
