@@ -3,6 +3,7 @@ use primitive_types::U256;
 use crate::stack::Stack;
 use crate::memory::Memory;
 use crate::gas::GasTracker;
+use hex;
 
 /// EVM execution state
 pub struct EvmState {
@@ -1414,12 +1415,22 @@ impl EvmState {
                 let offset = self.stack.pop()?;
                 let size = self.stack.pop()?;
                 
-                // Read the contract code from memory
+                // Read the initcode from memory
                 let offset_usize = offset.as_usize();
                 let size_usize = size.as_usize();
-                let contract_code = self.memory.read(offset_usize, size_usize)?;
+                let initcode = self.memory.read(offset_usize, size_usize)?;
                 
-                // Generate a deterministic address based on the caller address and some fixed data
+                println!("DEBUG: CREATE - Initcode: {:?}", initcode);
+                println!("DEBUG: CREATE - Initcode hex: 0x{}", initcode.iter().map(|b| format!("{:02x}", b)).collect::<String>());
+                
+                // Check initcode length (must be <= 49152 bytes according to spec)
+                if initcode.len() > 49152 {
+                    println!("DEBUG: CREATE - Initcode too long ({} bytes), returning failure", initcode.len());
+                    self.stack.push(Word::zero())?; // Return 0 for failure
+                    return Ok(());
+                }
+                
+                // Generate a deterministic address based on the caller address and nonce
                 // For simplicity, we'll use a hash-like function
                 let mut address_data = Vec::new();
                 address_data.extend_from_slice(&self.address);
@@ -1439,22 +1450,58 @@ impl EvmState {
                     new_address[i] = address_hash.byte(31 - i);
                 }
                 
-                // Push the new contract address onto the stack
+                // Create the address word for the stack
                 let mut padded_address = vec![0u8; 32];
                 for (i, &byte) in new_address.iter().enumerate() {
                     padded_address[32 - 20 + i] = byte;
                 }
                 let address_word = Word::from_big_endian(&padded_address);
                 
-                // Add the new contract account to the test state
-                // Since we now have a default test state, this will always work
+                // Execute the initcode to get the contract code
+                // We need to create a new EVM instance to execute the initcode
+                let mut init_config = self.config.clone();
+                init_config.transaction.to = [0u8; 20]; // Contract creation
+                init_config.transaction.from = self.address;
+                init_config.transaction.value = value;
+                init_config.transaction.data = initcode.clone();
+                
+                // Create a new EVM state for executing the initcode
+                let mut init_state = EvmState::new(initcode.clone(), init_config);
+                init_state.storage = self.storage.clone(); // Share storage context
+                
+                // Execute the initcode until it halts
+                while init_state.status() == crate::state::ExecutionStatus::Running {
+                    if let Err(_) = init_state.step() {
+                        // On error, execution stops and returns failure
+                        init_state.reverted = true;
+                        break;
+                    }
+                }
+                
+                // Get the result and use the return data as the contract code
+                let result = init_state.result();
+                let contract_code = if result.success && !result.return_data.is_empty() {
+                    result.return_data
+                } else {
+                    // If execution failed or no return data, use empty code
+                    Vec::new()
+                };
+                
+                println!("DEBUG: CREATE - Initcode execution result: success={}, return_data={:?}", 
+                         result.success, contract_code);
+                
+                // Add the new contract account to the test state with the actual code
                 if let Some(ref mut test_state) = self.config.test_state {
                     let address_str = format!("0x{:040x}", address_word);
                     test_state.accounts.insert(address_str.clone(), crate::types::AccountState {
                         balance: Some(format!("0x{:x}", value)),
-                        code: None,
+                        code: Some(crate::types::Code {
+                            asm: None,
+                            bin: contract_code.iter().map(|b| format!("{:02x}", b)).collect::<String>(),
+                        }),
                     });
-                    println!("DEBUG: CREATE - Created account {} with balance 0x{:x}", address_str, value);
+                    println!("DEBUG: CREATE - Created account {} with balance 0x{:x} and code 0x{}", 
+                             address_str, value, contract_code.iter().map(|b| format!("{:02x}", b)).collect::<String>());
                 }
                 
                 // Push the new contract address onto the stack
