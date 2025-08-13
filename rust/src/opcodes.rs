@@ -165,7 +165,7 @@ pub enum Opcode {
     Return = 0xf3,
     Delegatecall = 0xf4,
     Create2 = 0xf5,
-    Staticcall = 0xf6,
+    Staticcall = 0xfa,
     Revert = 0xfd,
     Selfdestruct = 0xff,
 }
@@ -335,7 +335,7 @@ impl Opcode {
             0xf3 => Some(Opcode::Return),
             0xf4 => Some(Opcode::Delegatecall),
             0xf5 => Some(Opcode::Create2),
-            0xf6 => Some(Opcode::Staticcall),
+            0xfa => Some(Opcode::Staticcall), //this could be wrong i think its 0xfa
             0xfd => Some(Opcode::Revert),
             0xff => Some(Opcode::Selfdestruct),
             _ => None,

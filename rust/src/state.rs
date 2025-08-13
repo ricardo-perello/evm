@@ -40,6 +40,9 @@ pub struct EvmState {
     
     // Reference to config for dynamic values
     pub config: EvmConfig,
+    
+    // Static context flag - prevents state modifications in STATICCALL
+    pub static_context: bool,
 }
 
 impl EvmState {
@@ -79,6 +82,9 @@ impl EvmState {
             
             // Store config reference
             config,
+            
+            // Static context flag - prevents state modifications in STATICCALL
+            static_context: false,
         }
     }
 
@@ -97,6 +103,11 @@ impl EvmState {
         let opcode_byte = self.code[self.program_counter];
         let opcode = crate::opcodes::Opcode::from_byte(opcode_byte)
             .ok_or_else(|| EvmError::InvalidOpcode(opcode_byte))?;
+        
+        // Debug print for STATICCALL
+        if opcode_byte == 0xf6 {
+            println!("DEBUG: Found STATICCALL opcode byte 0xf6, parsed as: {:?}", opcode);
+        }
 
         // Consume gas for the opcode
         self.gas_tracker.consume(opcode.gas_cost())?;
@@ -116,6 +127,9 @@ impl EvmState {
 
     /// Execute a specific opcode
     fn execute_opcode(&mut self, opcode: crate::opcodes::Opcode) -> Result<(), EvmError> {
+        // Debug print the opcode being matched
+        println!("DEBUG: About to match opcode: {:?}", opcode);
+        
         match opcode {
             crate::opcodes::Opcode::Stop => {
                 self.halted = true;
@@ -1145,6 +1159,11 @@ impl EvmState {
             
             // Storage operations
             crate::opcodes::Opcode::Sstore => {
+                // Check if we're in static context (STATICCALL)
+                if self.static_context {
+                    return Err(EvmError::Unknown("SSTORE not allowed in static context".to_string()));
+                }
+                
                 let key = self.stack.pop()?;
                 let value = self.stack.pop()?;
                 
@@ -1206,6 +1225,11 @@ impl EvmState {
             }
             
             crate::opcodes::Opcode::Log1 => {
+                // Check if we're in static context (STATICCALL)
+                if self.static_context {
+                    return Err(EvmError::Unknown("LOG1 not allowed in static context".to_string()));
+                }
+                
                 // LOG1 gas is already consumed in step(), so no need to consume here
                 
                 // LOG1 consumes 3 values from stack: offset, size, and topic1
@@ -1353,6 +1377,11 @@ impl EvmState {
             }
             
             crate::opcodes::Opcode::Call => {
+                // Check if we're in static context (STATICCALL)
+                if self.static_context {
+                    return Err(EvmError::Unknown("CALL not allowed in static context".to_string()));
+                }
+                
                 // CALL opcode: gas, address, value, argsOffset, argsSize, retOffset, retSize
                 let gas = self.stack.pop()?;
                 let address_bytes = self.stack.pop()?;
@@ -1440,6 +1469,11 @@ impl EvmState {
             }
             
             crate::opcodes::Opcode::Delegatecall => {
+                // Check if we're in static context (STATICCALL)
+                if self.static_context {
+                    return Err(EvmError::Unknown("DELEGATECALL not allowed in static context".to_string()));
+                }
+                
                 // DELEGATECALL opcode: gas, address, argsOffset, argsSize, retOffset, retSize
                 let gas = self.stack.pop()?;
                 let address_bytes = self.stack.pop()?;
@@ -1542,6 +1576,7 @@ impl EvmState {
             }
             
             crate::opcodes::Opcode::Staticcall => {
+                println!("DEBUG: STATICCALL - Entering STATICCALL case");
                 // STATICCALL opcode: gas, address, argsOffset, argsSize, retOffset, retSize
                 let gas = self.stack.pop()?;
                 let address_bytes = self.stack.pop()?;
@@ -1601,9 +1636,34 @@ impl EvmState {
                 call_config.transaction.from = self.address;
                 call_config.transaction.data = call_data;
                 
-                // Execute the contract
-                let evm = crate::vm::Evm::new(call_config);
-                let result = evm.execute(contract_code);
+                // For STATICCALL, we need to share the storage context
+                // Create a new EvmState but with the same storage
+                let mut static_state = EvmState::new(contract_code, call_config);
+                static_state.storage = self.storage.clone(); // Share storage context
+                static_state.address = self.address; // Keep the same address
+                static_state.static_context = true; // Set static context for the call
+                
+                println!("DEBUG: STATICCALL - Starting execution");
+                
+                // Execute the contract in the static state
+                while static_state.status() == crate::state::ExecutionStatus::Running {
+                    if let Err(e) = static_state.step() {
+                        // On error, execution stops and returns failure
+                        println!("DEBUG: STATICCALL - Execution error: {:?}", e);
+                        static_state.reverted = true;
+                        break;
+                    }
+                }
+                
+                println!("DEBUG: STATICCALL - Execution finished, status: {:?}", static_state.status());
+                println!("DEBUG: STATICCALL - Stack: {:?}", static_state.stack.data());
+                println!("DEBUG: STATICCALL - Return data: {:?}", static_state.return_data);
+                
+                // Get the result and update our storage
+                let result = static_state.result();
+                self.storage = static_state.storage; // Update our storage with any changes
+                
+                println!("DEBUG: STATICCALL - Result: {:?}", result);
                 
                 // Push success/failure (1 for success, 0 for failure)
                 if result.success {
@@ -1629,6 +1689,7 @@ impl EvmState {
             
             _ => {
                 // For now, return an error for unimplemented opcodes
+                println!("DEBUG: Unknown opcode: {:?} (byte: 0x{:02x})", opcode, opcode as u8);
                 Err(EvmError::Unknown(format!("Opcode {:?} not implemented", opcode)))
             }
         }
