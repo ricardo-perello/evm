@@ -1,4 +1,6 @@
 use primitive_types::U256;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 /// Core EVM data types
 pub type Address = [u8; 20];
@@ -48,7 +50,7 @@ pub struct EvmConfig {
     pub chain_id: U256,
     pub coinbase: Address,
     pub transaction: Transaction,
-    pub test_state: Option<TestState>,
+    pub test_state: Option<Rc<RefCell<TestState>>>,
 }
 
 impl Default for EvmConfig {
@@ -62,9 +64,9 @@ impl Default for EvmConfig {
             block_base_fee: U256::from(1),
             chain_id: U256::from(1),
             coinbase: [0u8; 20],
-            test_state: Some(TestState {
+            test_state: Some(Rc::new(RefCell::new(TestState {
                 accounts: std::collections::HashMap::new(),
-            }),
+            }))),
             transaction: Transaction {
                 to: [0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A, 0xAA],
                 from: [0x1E, 0x79, 0xB0, 0x45, 0xDC, 0x29, 0xEA, 0xE9, 0xFD, 0xC6, 0x96, 0x73, 0xC9, 0xDC, 0xD7, 0xC5, 0x3E, 0x5E, 0x15, 0x9D],

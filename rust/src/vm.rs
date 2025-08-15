@@ -15,7 +15,7 @@ impl Evm {
 
     /// Execute EVM bytecode
     pub fn execute(&self, code: Vec<u8>) -> EvmResult {
-        let mut state = EvmState::new(code, self.config.clone());
+        let mut state = EvmState::new(code, self.config.clone()); //todo could be a problem here
         
         // Execute until halted or error
         while state.status() == crate::state::ExecutionStatus::Running {

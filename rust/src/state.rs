@@ -406,10 +406,11 @@ impl EvmState {
                     // Convert address to string format for lookup
                     let address_str = format!("0x{:040x}", address);
                     println!("DEBUG: BALANCE - Looking for address {} in test state", address_str);
-                    println!("DEBUG: BALANCE - Available accounts: {:?}", test_state.accounts.keys().collect::<Vec<_>>());
+                    let test_state_borrowed = test_state.borrow();
+                    println!("DEBUG: BALANCE - Available accounts: {:?}", test_state_borrowed.accounts.keys().collect::<Vec<_>>());
                     
                     // Check if this address has a balance in the test state
-                    if let Some(account_state) = test_state.accounts.get(&address_str) {
+                    if let Some(account_state) = test_state_borrowed.accounts.get(&address_str) {
                         if let Some(ref balance_hex) = account_state.balance {
                             // Parse the balance from hex string
                             let balance_clean = balance_hex.trim_start_matches("0x");
@@ -793,9 +794,10 @@ impl EvmState {
                 if let Some(ref test_state) = self.config.test_state {
                     // Convert address to string format for lookup
                     let address_str = format!("0x{:040x}", address);
+                    let test_state_borrowed = test_state.borrow();
                     
                     // Check if this address has code in the test state
-                    if let Some(account_state) = test_state.accounts.get(&address_str) {
+                    if let Some(account_state) = test_state_borrowed.accounts.get(&address_str) {
                         if let Some(ref code) = &account_state.code {
                             // Parse the actual code from test state
                             let code_clean = code.bin.trim_start_matches("0x");
@@ -845,9 +847,10 @@ impl EvmState {
                 if let Some(ref test_state) = self.config.test_state {
                     // Convert address to string format for lookup
                     let address_str = format!("0x{:040x}", address);
+                    let test_state_borrowed = test_state.borrow();
                     
                     // Check if this address has code in the test state
-                    if let Some(account_state) = test_state.accounts.get(&address_str) {
+                    if let Some(account_state) = test_state_borrowed.accounts.get(&address_str) {
                         if let Some(ref code) = &account_state.code {
                             // Parse the actual code from test state
                             let code_clean = code.bin.trim_start_matches("0x");
@@ -888,6 +891,83 @@ impl EvmState {
                 Ok(())
             }
             
+            crate::opcodes::Opcode::Selfdestruct => {
+                // Check if we're in static context (STATICCALL)
+                if self.static_context {
+                    return Err(EvmError::Unknown("SELFDESTRUCT not allowed in static context".to_string()));
+                }
+                
+                // SELFDESTRUCT opcode: beneficiary address
+                let beneficiary = self.stack.pop()?;
+                
+                println!("DEBUG: SELFDESTRUCT - Self-destructing contract {} to beneficiary 0x{:040x}", 
+                         format!("0x{:040x}", Word::from_big_endian(&self.address)), beneficiary);
+                
+                // Convert beneficiary address to string format
+                let beneficiary_str = format!("0x{:040x}", beneficiary);
+                
+                // Get the current contract's balance
+                let current_balance = if let Some(ref test_state) = self.config.test_state {
+                    let current_address_str = format!("0x{:040x}", Word::from_big_endian(&self.address));
+                    let test_state_borrowed = test_state.borrow();
+                    if let Some(account_state) = test_state_borrowed.accounts.get(&current_address_str) {
+                        if let Some(ref balance_hex) = account_state.balance {
+                            let balance_clean = balance_hex.trim_start_matches("0x");
+                            U256::from_str_radix(balance_clean, 16).unwrap_or_default()
+                        } else {
+                            Word::zero()
+                        }
+                    } else {
+                        Word::zero()
+                    }
+                } else {
+                    Word::zero()
+                };
+                
+                println!("DEBUG: SELFDESTRUCT - Current contract balance: 0x{:x}", current_balance);
+                
+                // Transfer balance to beneficiary
+                if let Some(ref test_state) = self.config.test_state {
+                    let mut test_state_borrowed = test_state.borrow_mut();
+                    // Get or create beneficiary account
+                    let beneficiary_account = test_state_borrowed.accounts.entry(beneficiary_str.clone()).or_insert_with(|| crate::types::AccountState {
+                        balance: Some("0x0".to_string()),
+                        code: None,
+                    });
+                    
+                    // Add current contract's balance to beneficiary
+                    let beneficiary_balance = if let Some(ref balance_hex) = beneficiary_account.balance {
+                        let balance_clean = balance_hex.trim_start_matches("0x");
+                        U256::from_str_radix(balance_clean, 16).unwrap_or_default()
+                    } else {
+                        Word::zero()
+                    };
+                    
+                    let new_beneficiary_balance = beneficiary_balance + current_balance;
+                    beneficiary_account.balance = Some(format!("0x{:x}", new_beneficiary_balance));
+                    
+                    println!("DEBUG: SELFDESTRUCT - Transferred 0x{:x} to beneficiary {}, new balance: 0x{:x}", 
+                             current_balance, beneficiary_str, new_beneficiary_balance);
+                    
+                    // Clear the current contract's balance (mark for deletion)
+                    let current_address_str = format!("0x{:040x}", Word::from_big_endian(&self.address));
+                    if let Some(account_state) = test_state_borrowed.accounts.get_mut(&current_address_str) {
+                        account_state.balance = Some("0x0".to_string());
+                        account_state.code = None; // Remove code
+                        println!("DEBUG: SELFDESTRUCT - Marked contract {} for deletion", current_address_str);
+                    }
+                    
+                    // Debug: Print all accounts in test state after SELFDESTRUCT
+                    println!("DEBUG: SELFDESTRUCT - Test state accounts after transfer: {:?}", 
+                             test_state_borrowed.accounts.keys().collect::<Vec<_>>());
+                }
+                
+                // Halt execution (SELFDESTRUCT always halts)
+                self.halted = true;
+                
+                Ok(())
+            }
+            
             crate::opcodes::Opcode::Extcodehash => {
                 // Pop the address from the stack
                 let address = self.stack.pop()?;
@@ -896,9 +976,10 @@ impl EvmState {
                 if let Some(ref test_state) = self.config.test_state {
                     // Convert address to string format for lookup
                     let address_str = format!("0x{:040x}", address);
+                    let test_state_borrowed = test_state.borrow();
                     
                     // Check if this address has code in the test state
-                    if let Some(account_state) = test_state.accounts.get(&address_str) {
+                    if let Some(account_state) = test_state_borrowed.accounts.get(&address_str) {
                         if let Some(ref code) = &account_state.code {
                             // Parse the actual code from test state
                             let code_clean = code.bin.trim_start_matches("0x");
@@ -1035,10 +1116,11 @@ impl EvmState {
                         self.address[15], self.address[16], self.address[17], self.address[18], self.address[19]);
                     
                     println!("DEBUG: SELFBALANCE checking address: {}", address_str);
-                    println!("DEBUG: Available accounts in test state: {:?}", test_state.accounts.keys().collect::<Vec<_>>());
+                    let test_state_borrowed = test_state.borrow();
+                    println!("DEBUG: Available accounts in test state: {:?}", test_state_borrowed.accounts.keys().collect::<Vec<_>>());
                     
                     // Check if this address has a balance in the test state
-                    if let Some(account_state) = test_state.accounts.get(&address_str) {
+                    if let Some(account_state) = test_state_borrowed.accounts.get(&address_str) {
                         if let Some(ref balance_hex) = account_state.balance {
                             // Parse the balance from hex string
                             let balance_clean = balance_hex.trim_start_matches("0x");
@@ -1490,19 +1572,20 @@ impl EvmState {
                 println!("DEBUG: CREATE - Initcode execution result: success={}, return_data={:?}", 
                          result.success, contract_code);
                 
-                // Add the new contract account to the test state with the actual code
-                if let Some(ref mut test_state) = self.config.test_state {
-                    let address_str = format!("0x{:040x}", address_word);
-                    test_state.accounts.insert(address_str.clone(), crate::types::AccountState {
-                        balance: Some(format!("0x{:x}", value)),
-                        code: Some(crate::types::Code {
-                            asm: None,
-                            bin: contract_code.iter().map(|b| format!("{:02x}", b)).collect::<String>(),
-                        }),
-                    });
-                    println!("DEBUG: CREATE - Created account {} with balance 0x{:x} and code 0x{}", 
-                             address_str, value, contract_code.iter().map(|b| format!("{:02x}", b)).collect::<String>());
-                }
+                                 // Add the new contract account to the test state with the actual code
+                 if let Some(ref test_state) = self.config.test_state {
+                     let mut test_state_borrowed = test_state.borrow_mut();
+                     let address_str = format!("0x{:040x}", address_word);
+                     test_state_borrowed.accounts.insert(address_str.clone(), crate::types::AccountState {
+                          balance: Some(format!("0x{:x}", value)),
+                          code: Some(crate::types::Code {
+                              asm: None,
+                              bin: contract_code.iter().map(|b| format!("{:02x}", b)).collect::<String>(),
+                          }),
+                      });
+                      println!("DEBUG: CREATE - Created account {} with balance 0x{:x} and code 0x{}", 
+                               address_str, value, contract_code.iter().map(|b| format!("{:02x}", b)).collect::<String>());
+                  }
                 
                 // Push the new contract address onto the stack
                 self.stack.push(address_word)?;
@@ -1529,16 +1612,19 @@ impl EvmState {
                 let ret_size = self.stack.pop()?;
                 
                 // Convert address from Word to Address (20 bytes)
+                // Take the rightmost 20 bytes (low-order) of the 256-bit Word in big-endian order
                 let mut address = [0u8; 20];
                 for i in 0..20 {
-                    if i < 32 {
-                        address[19 - i] = address_bytes.byte(31 - i);
-                    }
+                    address[i] = address_bytes.byte(19 - i);
                 }
+                
+                // Create consistent address string for lookups
+                let address_str = format!("0x{:040x}", address_bytes);
                 
                 // Get the contract code from test state
                 let contract_code = if let Some(test_state) = &self.config.test_state {
-                    if let Some(account) = test_state.accounts.get(&format!("0x{:x}", address_bytes)) {
+                    let test_state_borrowed = test_state.borrow();
+                    if let Some(account) = test_state_borrowed.accounts.get(&address_str) {
                         if let Some(code) = &account.code {
                             // Convert hex string to bytes
                             let mut code_bytes = Vec::new();
@@ -1552,13 +1638,13 @@ impl EvmState {
                             }
                             code_bytes
                         } else {
-                            Vec::new()
+                            vec![]
                         }
                     } else {
-                        Vec::new()
+                        vec![]
                     }
                 } else {
-                    Vec::new()
+                    vec![]
                 };
                 
                 // If no code, return failure
@@ -1568,7 +1654,7 @@ impl EvmState {
                 }
                 
                 // Create a new EVM instance to execute the contract
-                let mut call_config = self.config.clone();
+                let mut call_config = self.config.clone(); //todo could be a problem here
                 call_config.transaction.to = address;
                 call_config.transaction.from = self.address;
                 call_config.transaction.value = value;
@@ -1579,9 +1665,28 @@ impl EvmState {
                 let call_data = self.memory.read(args_offset_usize, args_size_usize)?;
                 call_config.transaction.data = call_data;
                 
+                // Ensure the contract being called has its balance properly set up
+                if let Some(ref test_state) = call_config.test_state {
+                    let test_state_borrowed = test_state.borrow();
+                    if let Some(account_state) = test_state_borrowed.accounts.get(&address_str) {
+                        // The contract exists and has a balance, ensure it's properly set up
+                        println!("DEBUG: CALL - Contract {} has balance {:?}", address_str, account_state.balance);
+                    }
+                }
+                
+                // Debug: Print the addresses being used
+                println!("DEBUG: CALL - address_bytes (Word): 0x{:040x}", address_bytes);
+                println!("DEBUG: CALL - address (20-byte array): {:?}", address);
+                println!("DEBUG: CALL - address_str: {}", address_str);
+                println!("DEBUG: CALL - call_config.transaction.to: {:?}", call_config.transaction.to);
+                
                 // Execute the contract
                 let evm = crate::vm::Evm::new(call_config);
                 let result = evm.execute(contract_code);
+                
+                // The contract execution might have modified the test state
+                // We need to ensure those changes are reflected in our current context
+                // For now, we'll rely on the fact that both EVM instances share the same test state reference
                 
                 // Push success/failure (1 for success, 0 for failure)
                 if result.success {
@@ -1620,16 +1725,16 @@ impl EvmState {
                 let ret_size = self.stack.pop()?;
                 
                 // Convert address from Word to Address (20 bytes)
+                // Take the rightmost 20 bytes (low-order) of the 256-bit Word in big-endian order
                 let mut address = [0u8; 20];
                 for i in 0..20 {
-                    if i < 32 {
-                        address[19 - i] = address_bytes.byte(31 - i);
-                    }
+                    address[i] = address_bytes.byte(19 - i);
                 }
                 
                 // Get the contract code from test state
                 let contract_code = if let Some(test_state) = &self.config.test_state {
-                    if let Some(account) = test_state.accounts.get(&format!("0x{:x}", address_bytes)) {
+                    let test_state_borrowed = test_state.borrow();
+                    if let Some(account) = test_state_borrowed.accounts.get(&format!("0x{:x}", address_bytes)) {
                         if let Some(code) = &account.code {
                             // Convert hex string to bytes
                             let mut code_bytes = Vec::new();
@@ -1643,13 +1748,13 @@ impl EvmState {
                             }
                             code_bytes
                         } else {
-                            Vec::new()
+                            vec![]
                         }
                     } else {
-                        Vec::new()
+                        vec![]
                     }
                 } else {
-                    Vec::new()
+                    vec![]
                 };
                 
                 // If no code, return failure
@@ -1723,16 +1828,16 @@ impl EvmState {
                 let ret_size = self.stack.pop()?;
                 
                 // Convert address from Word to Address (20 bytes)
+                // Take the rightmost 20 bytes (low-order) of the 256-bit Word in big-endian order
                 let mut address = [0u8; 20];
                 for i in 0..20 {
-                    if i < 32 {
-                        address[19 - i] = address_bytes.byte(31 - i);
-                    }
+                    address[i] = address_bytes.byte(19 - i);
                 }
                 
                 // Get the contract code from test state
                 let contract_code = if let Some(test_state) = &self.config.test_state {
-                    if let Some(account) = test_state.accounts.get(&format!("0x{:x}", address_bytes)) {
+                    let test_state_borrowed = test_state.borrow();
+                    if let Some(account) = test_state_borrowed.accounts.get(&format!("0x{:x}", address_bytes)) {
                         if let Some(code) = &account.code {
                             // Convert hex string to bytes
                             let mut code_bytes = Vec::new();
@@ -1746,13 +1851,13 @@ impl EvmState {
                             }
                             code_bytes
                         } else {
-                            Vec::new()
+                            vec![]
                         }
                     } else {
-                        Vec::new()
+                        vec![]
                     }
                 } else {
-                    Vec::new()
+                    vec![]
                 };
                 
                 // If no code, return failure
