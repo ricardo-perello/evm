@@ -152,7 +152,6 @@ fn main() {
         if let Some(ref test_state) = test.state {
             // Store the state in the config for the EVM to use, wrapped in Rc<RefCell> for shared access
             config.test_state = Some(Rc::new(RefCell::new(test_state.clone())));
-            println!("DEBUG: Test has state: {:?}", test_state);
         }
 
         let vm = evm::Evm::new(config);

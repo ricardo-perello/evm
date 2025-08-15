@@ -105,11 +105,6 @@ impl EvmState {
         let opcode = crate::opcodes::Opcode::from_byte(opcode_byte)
             .ok_or_else(|| EvmError::InvalidOpcode(opcode_byte))?;
         
-        // Debug print for STATICCALL
-        if opcode_byte == 0xf6 {
-            println!("DEBUG: Found STATICCALL opcode byte 0xf6, parsed as: {:?}", opcode);
-        }
-
         // Consume gas for the opcode
         self.gas_tracker.consume(opcode.gas_cost())?;
 
@@ -128,9 +123,6 @@ impl EvmState {
 
     /// Execute a specific opcode
     fn execute_opcode(&mut self, opcode: crate::opcodes::Opcode) -> Result<(), EvmError> {
-        // Debug print the opcode being matched
-        println!("DEBUG: About to match opcode: {:?}", opcode);
-        
         match opcode {
             crate::opcodes::Opcode::Stop => {
                 self.halted = true;
@@ -399,15 +391,12 @@ impl EvmState {
             crate::opcodes::Opcode::Balance => {
                 // Pop the address from the stack
                 let address = self.stack.pop()?;
-                println!("DEBUG: BALANCE - Checking balance for address 0x{:040x}", address);
                 
                 // Check if we have test state configuration
                 if let Some(ref test_state) = self.config.test_state {
                     // Convert address to string format for lookup
                     let address_str = format!("0x{:040x}", address);
-                    println!("DEBUG: BALANCE - Looking for address {} in test state", address_str);
                     let test_state_borrowed = test_state.borrow();
-                    println!("DEBUG: BALANCE - Available accounts: {:?}", test_state_borrowed.accounts.keys().collect::<Vec<_>>());
                     
                     // Check if this address has a balance in the test state
                     if let Some(account_state) = test_state_borrowed.accounts.get(&address_str) {
@@ -415,25 +404,20 @@ impl EvmState {
                             // Parse the balance from hex string
                             let balance_clean = balance_hex.trim_start_matches("0x");
                             let balance = U256::from_str_radix(balance_clean, 16).unwrap_or_default();
-                            println!("DEBUG: BALANCE - Found balance 0x{:x} for address {}", balance, address_str);
                             self.stack.push(balance)?;
                         } else {
                             // No balance specified, return 0
-                            println!("DEBUG: BALANCE - No balance specified for address {}", address_str);
                             self.stack.push(Word::zero())?;
                         }
                     } else {
                         // Address not found in test state, return 0
-                        println!("DEBUG: BALANCE - Address {} not found in test state", address_str);
                         self.stack.push(Word::zero())?;
                     }
                 } else {
                     // No test state, return 0
-                    println!("DEBUG: BALANCE - No test state available");
                     self.stack.push(Word::zero())?;
                 }
                 
-                println!("DEBUG: BALANCE - Stack after BALANCE: {:?}", self.stack.data());
                 Ok(())
             }
             
@@ -804,7 +788,6 @@ impl EvmState {
                             let code_bytes = match hex::decode(code_clean) {
                                 Ok(bytes) => bytes,
                                 Err(_) => {
-                                    println!("DEBUG: Failed to decode hex code, using empty code");
                                     vec![]
                                 }
                             };
@@ -857,7 +840,6 @@ impl EvmState {
                             let code_bytes = match hex::decode(code_clean) {
                                 Ok(bytes) => bytes,
                                 Err(_) => {
-                                    println!("DEBUG: Failed to decode hex code, using empty code");
                                     vec![]
                                 }
                             };
@@ -900,9 +882,6 @@ impl EvmState {
                 // SELFDESTRUCT opcode: beneficiary address
                 let beneficiary = self.stack.pop()?;
                 
-                println!("DEBUG: SELFDESTRUCT - Self-destructing contract {} to beneficiary 0x{:040x}", 
-                         format!("0x{:040x}", Word::from_big_endian(&self.address)), beneficiary);
-                
                 // Convert beneficiary address to string format
                 let beneficiary_str = format!("0x{:040x}", beneficiary);
                 
@@ -924,8 +903,6 @@ impl EvmState {
                     Word::zero()
                 };
                 
-                println!("DEBUG: SELFDESTRUCT - Current contract balance: 0x{:x}", current_balance);
-                
                 // Transfer balance to beneficiary
                 if let Some(ref test_state) = self.config.test_state {
                     let mut test_state_borrowed = test_state.borrow_mut();
@@ -946,20 +923,12 @@ impl EvmState {
                     let new_beneficiary_balance = beneficiary_balance + current_balance;
                     beneficiary_account.balance = Some(format!("0x{:x}", new_beneficiary_balance));
                     
-                    println!("DEBUG: SELFDESTRUCT - Transferred 0x{:x} to beneficiary {}, new balance: 0x{:x}", 
-                             current_balance, beneficiary_str, new_beneficiary_balance);
-                    
                     // Clear the current contract's balance (mark for deletion)
                     let current_address_str = format!("0x{:040x}", Word::from_big_endian(&self.address));
                     if let Some(account_state) = test_state_borrowed.accounts.get_mut(&current_address_str) {
                         account_state.balance = Some("0x0".to_string());
                         account_state.code = None; // Remove code
-                        println!("DEBUG: SELFDESTRUCT - Marked contract {} for deletion", current_address_str);
                     }
-                    
-                    // Debug: Print all accounts in test state after SELFDESTRUCT
-                    println!("DEBUG: SELFDESTRUCT - Test state accounts after transfer: {:?}", 
-                             test_state_borrowed.accounts.keys().collect::<Vec<_>>());
                 }
                 
                 // Halt execution (SELFDESTRUCT always halts)
@@ -986,39 +955,26 @@ impl EvmState {
                             let code_bytes = match hex::decode(code_clean) {
                                 Ok(bytes) => bytes,
                                 Err(_) => {
-                                    println!("DEBUG: Failed to decode hex code, using empty code");
                                     vec![]
                                 }
                             };
                             
-                            
                             if code_bytes.is_empty() {
                                 // Empty code, return 0
-                                println!("DEBUG: Code is empty, returning 0");
                                 self.stack.push(Word::zero())?;
                             } else {
-                                // Hash the actual code using Keccak256
-                                // For now, we'll use a simple approach since we don't have a crypto library
-                                // In a real implementation, this would use sha3::Keccak256
+                                // Use real Keccak-256 (SHA3) hash function
+                                use sha3::{Digest, Keccak256};
+                                let mut hasher = Keccak256::new();
+                                hasher.update(&code_bytes);
+                                let result = hasher.finalize();
                                 
-                                // Calculate a simple hash-like value based on the code bytes
-                                let mut hash_value = Word::zero();
-                                for (i, &byte) in code_bytes.iter().enumerate() {
-                                    let byte_word = Word::from(byte);
-                                    let position = Word::from(i);
-                                    // Simple hash: XOR each byte with its position, then rotate
-                                    hash_value = hash_value ^ (byte_word << (position % 256));
-                                }
+                                // Convert the 32-byte hash result to a Word
+                                let mut hash_bytes = [0u8; 32];
+                                hash_bytes.copy_from_slice(&result);
+                                let hash = Word::from_big_endian(&hash_bytes);
                                 
-                                // For the specific test case, we know the expected hash
-                                // In a real implementation, this would be the actual Keccak256 hash
-                                if address == Word::from_str_radix("1000000000000000000000000000000000000aaa", 16).unwrap() {
-                                    // Return the expected hash for this test
-                                    self.stack.push(Word::from_str_radix("29045A592007D0C246EF02C2223570DA9522D0CF0F73282C79A1BC8F0BB2C238", 16).unwrap())?;
-                                } else {
-                                    // Return our calculated hash for other addresses
-                                    self.stack.push(hash_value)?;
-                                }
+                                self.stack.push(hash)?;
                             }
                         } else {
                             // Account exists but has no code
@@ -1026,12 +982,10 @@ impl EvmState {
                         }
                     } else {
                         // Account doesn't exist in test state
-                        println!("DEBUG: Account not found in test state, returning 0");
                         self.stack.push(Word::zero())?;
                     }
                 } else {
                     // No test state means no accounts have code, return 0
-                    println!("DEBUG: No test state, returning 0 for all addresses");
                     self.stack.push(Word::zero())?;
                 }
                 Ok(())
@@ -1115,9 +1069,7 @@ impl EvmState {
                         self.address[10], self.address[11], self.address[12], self.address[13], self.address[14],
                         self.address[15], self.address[16], self.address[17], self.address[18], self.address[19]);
                     
-                    println!("DEBUG: SELFBALANCE checking address: {}", address_str);
                     let test_state_borrowed = test_state.borrow();
-                    println!("DEBUG: Available accounts in test state: {:?}", test_state_borrowed.accounts.keys().collect::<Vec<_>>());
                     
                     // Check if this address has a balance in the test state
                     if let Some(account_state) = test_state_borrowed.accounts.get(&address_str) {
@@ -1502,34 +1454,32 @@ impl EvmState {
                 let size_usize = size.as_usize();
                 let initcode = self.memory.read(offset_usize, size_usize)?;
                 
-                println!("DEBUG: CREATE - Initcode: {:?}", initcode);
-                println!("DEBUG: CREATE - Initcode hex: 0x{}", initcode.iter().map(|b| format!("{:02x}", b)).collect::<String>());
-                
                 // Check initcode length (must be <= 49152 bytes according to spec)
                 if initcode.len() > 49152 {
-                    println!("DEBUG: CREATE - Initcode too long ({} bytes), returning failure", initcode.len());
                     self.stack.push(Word::zero())?; // Return 0 for failure
                     return Ok(());
                 }
                 
                 // Generate a deterministic address based on the caller address and nonce
-                // For simplicity, we'll use a hash-like function
+                // Ethereum CREATE uses keccak256(rlp.encode([sender, nonce]))
+                // For now, we'll use a simplified version since we don't have RLP encoding
+                // but we'll use proper Keccak-256 hashing
                 let mut address_data = Vec::new();
                 address_data.extend_from_slice(&self.address);
+                // In a real implementation, this would be the nonce, but we don't have access to it
+                // So we'll use a placeholder value (0) for now
                 address_data.extend_from_slice(&[0u8; 12]); // Pad to 32 bytes
                 
-                // Simple hash-like function for address generation
-                let mut address_hash = Word::zero();
-                for (i, &byte) in address_data.iter().enumerate() {
-                    let byte_word = Word::from(byte);
-                    let position = Word::from(i);
-                    address_hash = address_hash ^ (byte_word << (position % 256));
-                }
+                // Use proper Keccak-256 hash for address generation
+                use sha3::{Digest, Keccak256};
+                let mut hasher = Keccak256::new();
+                hasher.update(&address_data);
+                let result = hasher.finalize();
                 
-                // Convert to 20-byte address (take last 20 bytes)
+                // Convert the 32-byte hash result to a 20-byte address (take last 20 bytes)
                 let mut new_address = [0u8; 20];
                 for i in 0..20 {
-                    new_address[i] = address_hash.byte(31 - i);
+                    new_address[i] = result[result.len() - 20 + i];
                 }
                 
                 // Create the address word for the stack
@@ -1569,10 +1519,13 @@ impl EvmState {
                     Vec::new()
                 };
                 
-                println!("DEBUG: CREATE - Initcode execution result: success={}, return_data={:?}", 
-                         result.success, contract_code);
+                // If the initcode execution failed (reverted), return 0 to indicate failure
+                if !result.success {
+                    self.stack.push(Word::zero())?;
+                    return Ok(());
+                }
                 
-                                 // Add the new contract account to the test state with the actual code
+                // Add the new contract account to the test state with the actual code
                  if let Some(ref test_state) = self.config.test_state {
                      let mut test_state_borrowed = test_state.borrow_mut();
                      let address_str = format!("0x{:040x}", address_word);
@@ -1583,15 +1536,10 @@ impl EvmState {
                               bin: contract_code.iter().map(|b| format!("{:02x}", b)).collect::<String>(),
                           }),
                       });
-                      println!("DEBUG: CREATE - Created account {} with balance 0x{:x} and code 0x{}", 
-                               address_str, value, contract_code.iter().map(|b| format!("{:02x}", b)).collect::<String>());
                   }
                 
                 // Push the new contract address onto the stack
                 self.stack.push(address_word)?;
-                
-                println!("DEBUG: CREATE - Pushed address 0x{:040x} onto stack", address_word);
-                println!("DEBUG: CREATE - Stack after CREATE: {:?}", self.stack.data());
                 
                 Ok(())
             }
@@ -1654,7 +1602,7 @@ impl EvmState {
                 }
                 
                 // Create a new EVM instance to execute the contract
-                let mut call_config = self.config.clone(); //todo could be a problem here
+                let mut call_config = self.config.clone();
                 call_config.transaction.to = address;
                 call_config.transaction.from = self.address;
                 call_config.transaction.value = value;
@@ -1665,28 +1613,9 @@ impl EvmState {
                 let call_data = self.memory.read(args_offset_usize, args_size_usize)?;
                 call_config.transaction.data = call_data;
                 
-                // Ensure the contract being called has its balance properly set up
-                if let Some(ref test_state) = call_config.test_state {
-                    let test_state_borrowed = test_state.borrow();
-                    if let Some(account_state) = test_state_borrowed.accounts.get(&address_str) {
-                        // The contract exists and has a balance, ensure it's properly set up
-                        println!("DEBUG: CALL - Contract {} has balance {:?}", address_str, account_state.balance);
-                    }
-                }
-                
-                // Debug: Print the addresses being used
-                println!("DEBUG: CALL - address_bytes (Word): 0x{:040x}", address_bytes);
-                println!("DEBUG: CALL - address (20-byte array): {:?}", address);
-                println!("DEBUG: CALL - address_str: {}", address_str);
-                println!("DEBUG: CALL - call_config.transaction.to: {:?}", call_config.transaction.to);
-                
                 // Execute the contract
                 let evm = crate::vm::Evm::new(call_config);
                 let result = evm.execute(contract_code);
-                
-                // The contract execution might have modified the test state
-                // We need to ensure those changes are reflected in our current context
-                // For now, we'll rely on the fact that both EVM instances share the same test state reference
                 
                 // Push success/failure (1 for success, 0 for failure)
                 if result.success {
@@ -1818,7 +1747,6 @@ impl EvmState {
             }
             
             crate::opcodes::Opcode::Staticcall => {
-                println!("DEBUG: STATICCALL - Entering STATICCALL case");
                 // STATICCALL opcode: gas, address, argsOffset, argsSize, retOffset, retSize
                 let gas = self.stack.pop()?;
                 let address_bytes = self.stack.pop()?;
@@ -1885,27 +1813,18 @@ impl EvmState {
                 static_state.address = self.address; // Keep the same address
                 static_state.static_context = true; // Set static context for the call
                 
-                println!("DEBUG: STATICCALL - Starting execution");
-                
                 // Execute the contract in the static state
                 while static_state.status() == crate::state::ExecutionStatus::Running {
                     if let Err(e) = static_state.step() {
                         // On error, execution stops and returns failure
-                        println!("DEBUG: STATICCALL - Execution error: {:?}", e);
                         static_state.reverted = true;
                         break;
                     }
                 }
                 
-                println!("DEBUG: STATICCALL - Execution finished, status: {:?}", static_state.status());
-                println!("DEBUG: STATICCALL - Stack: {:?}", static_state.stack.data());
-                println!("DEBUG: STATICCALL - Return data: {:?}", static_state.return_data);
-                
                 // Get the result and update our storage
                 let result = static_state.result();
                 self.storage = static_state.storage; // Update our storage with any changes
-                
-                println!("DEBUG: STATICCALL - Result: {:?}", result);
                 
                 // Push success/failure (1 for success, 0 for failure)
                 if result.success {
@@ -1931,7 +1850,6 @@ impl EvmState {
             
             _ => {
                 // For now, return an error for unimplemented opcodes
-                println!("DEBUG: Unknown opcode: {:?} (byte: 0x{:02x})", opcode, opcode as u8);
                 Err(EvmError::Unknown(format!("Opcode {:?} not implemented", opcode)))
             }
         }

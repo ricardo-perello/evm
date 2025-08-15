@@ -335,7 +335,7 @@ impl Opcode {
             0xf3 => Some(Opcode::Return),
             0xf4 => Some(Opcode::Delegatecall),
             0xf5 => Some(Opcode::Create2),
-            0xfa => Some(Opcode::Staticcall), //this could be wrong i think its 0xfa
+            0xfa => Some(Opcode::Staticcall),
             0xfd => Some(Opcode::Revert),
             0xff => Some(Opcode::Selfdestruct),
             _ => None,
